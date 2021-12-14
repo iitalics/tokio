@@ -73,3 +73,12 @@ pub use self::rand::thread_rng_n;
     all(unix, feature = "signal")
 ))]
 pub(crate) mod error;
+
+pub(crate) fn log_unchecked(what: &impl std::fmt::Display) {
+    use std::io::Write;
+    use std::os::unix::io::{AsRawFd, FromRawFd};
+    let mut stderr = std::mem::ManuallyDrop::new(unsafe {
+        std::fs::File::from_raw_fd(std::io::stderr().as_raw_fd())
+    });
+    write!(&mut stderr, "LOG: {}\n", what).unwrap();
+}

@@ -38,3 +38,8 @@ cfg_macros! {
 // Includes re-exports needed to implement macros
 #[doc(hidden)]
 pub mod support;
+
+#[macro_export]
+macro_rules! log_unchecked {
+    ($( $x:tt )*) => { crate::util::log_unchecked(&format_args!($($x)*)) }
+}
