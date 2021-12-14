@@ -191,6 +191,7 @@ mod kill;
 
 use crate::io::{AsyncRead, AsyncWrite, ReadBuf};
 use crate::process::kill::Kill;
+use crate::util::log_unchecked;
 
 use std::convert::TryInto;
 use std::ffi::OsStr;
@@ -864,9 +865,11 @@ where
     type Output = Result<T, E>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        log_unchecked!("poll child: 0");
         // Keep track of task budget
         let coop = ready!(crate::coop::poll_proceed(cx));
 
+        log_unchecked!("poll child: 1");
         let ret = Pin::new(&mut self.inner).poll(cx);
 
         if let Poll::Ready(Ok(_)) = ret {
@@ -878,6 +881,7 @@ where
             coop.made_progress();
         }
 
+        log_unchecked!("poll child: 2");
         ret
     }
 }
@@ -1124,18 +1128,31 @@ impl Child {
     pub async fn wait_with_output(mut self) -> io::Result<Output> {
         use crate::future::try_join3;
 
-        async fn read_to_end<A: AsyncRead + Unpin>(io: Option<A>) -> io::Result<Vec<u8>> {
+        use crate::log_unchecked;
+        use std::os::unix::io::AsRawFd;
+
+        async fn read_to_end<A: AsyncRead + Unpin + AsRawFd>(io: Option<A>) -> io::Result<Vec<u8>> {
+            let fd = io.as_ref().map(|io| io.as_raw_fd());
             let mut vec = Vec::new();
             if let Some(mut io) = io {
                 crate::io::util::read_to_end(&mut io, &mut vec).await?;
+                std::mem::drop(io);
             }
+            log_unchecked!("  read to end finished ({:?})", fd);
             Ok(vec)
         }
+
+        let pid = self.id();
+        let stdout_fd = self.stdout.as_ref().map(|io| io.as_raw_fd());
+        let stderr_fd = self.stderr.as_ref().map(|io| io.as_raw_fd());
+        log_unchecked!("wait_with_output({:?},{:?},{:?}): starting", pid, stdout_fd, stderr_fd);
 
         let stdout_fut = read_to_end(self.stdout.take());
         let stderr_fut = read_to_end(self.stderr.take());
 
         let (status, stdout, stderr) = try_join3(self.wait(), stdout_fut, stderr_fut).await?;
+
+        log_unchecked!("wait_with_output({:?},{:?},{:?}): finished", pid, stdout_fd, stderr_fd);
 
         Ok(Output {
             status,
